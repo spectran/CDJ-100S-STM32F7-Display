@@ -1,0 +1,30 @@
+/*
+ * fft.h
+ *
+ *  Created on: Jul 6, 2019
+ *      Author: Spectran
+ */
+
+#ifndef FFT_H_
+#define FFT_H_
+
+#define TRUE				( 1 == 1 )
+#define FALSE				( 1 == 0 )
+
+#define	NO_EFFECT			0
+#define ECHO				1
+
+#define FFTSIZE 1024
+#define OVERSAMPLING 2
+
+void PitchShift(float *Buffer);
+void ShiftBufferElementsUp( float *Buffer, int start_index, int end_index, int PitchOffset);
+void ShiftBufferElementsDown (float *Buffer, int start_index, int end_index, int PitchOffset);
+int ConvertReference(void);
+//void Initial_Windowing_FFT(uint8_t *input, uint8_t *output);
+//void Transfer_Cplt_Windowing_FFT(uint8_t *input, uint8_t *output);
+void Windowing_FFT();
+float smbAtan2(float x, float y);
+void smbFft(float *fftBuffer, long fftFrameSize, long sign);
+
+#endif /* FFT_H_ */

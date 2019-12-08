@@ -1,0 +1,30 @@
+/*
+ * player.h
+ *
+ *  Created on: 9 θών. 2018 γ.
+ *      Author: teren
+ */
+
+#ifndef PLAYER_H_
+#define PLAYER_H_
+
+#include "stdint.h"
+
+typedef struct
+{
+	char chunkID[4];
+	uint32_t chunkSize;
+	char format[4];
+	char subchunk1ID[4];
+	uint32_t subchunk1Size;
+	uint16_t audioformat;
+	uint16_t numchannels;
+	uint32_t samplerate;
+	uint32_t byterate;
+	uint16_t blockalign;
+	uint16_t bitspersample;
+	char subchunk2ID[4];
+	uint32_t subchunk2Size;
+}WavHeaderTypeDef;
+
+#endif /* PLAYER_H_ */
