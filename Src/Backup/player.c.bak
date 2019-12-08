@@ -1,0 +1,15 @@
+/*
+ * player.c
+ *
+ *  Created on: 10 θών. 2018 γ.
+ *      Author: teren
+ */
+
+#include "player.h"
+#include "fatfs.h"
+
+WavHeaderTypeDef wavfile;
+
+uint8_t ReadWavHeader(char *path) {
+	return 0;
+}

@@ -1,0 +1,297 @@
+/*
+ * fft.c
+ *
+ *  Created on: Jul 6, 2019
+ *      Author: Spectran
+ */
+
+#include "stm32f7xx_hal.h"
+#include "main.h"
+#include "hamming.h"
+#include "arm_math.h"
+#include "arm_const_structs.h"
+#include "fft.h"
+#include "waveplayer.h"
+#include "fatfs.h"
+
+extern WavHeaderTypeDef wavfile;
+extern FIL MyFile;     /* File object */
+extern uint16_t bytesread;
+
+//
+// 4 times the size of the main buffer to compensate for addition of complex numbers and that we are processing
+// 2 buffers at a time
+//
+
+float delayedBuf[AUDIO_OUT_BUFFER_SIZE], procBuf[AUDIO_OUT_BUFFER_SIZE];
+int stepsize = FFTSIZE/OVERSAMPLING;
+float pitchShift = 1.5;
+float expct = M_PI;
+float LastPhase[2048] = {0};
+float AnaMagn[2048] = {0}; // analyzed magnitude
+float AnaFreq[2048] = {0}; // analyzed frequency
+float SynMagn[2048] = {0}; // synthesized magnitude
+float SynFreq[2048] = {0}; // synthesized frequency
+uint8_t output[FFTSIZE*2] = {0};
+uint16_t windows = 0;
+float freqPerBin = 43;
+
+void PitchShift(float *Buffer)
+{
+	float tmp = 0, phase = 0;
+	int k;
+	for (k = 0; k < 512; k++) {
+		/* de-interlace FFT buffer */
+		/* compute magnitude and phase */
+		float real = Buffer[2*k];
+		float imag = Buffer[2*k+1];
+		int32_t i = (float)k*pitchShift;
+		AnaMagn[k] = real;
+		phase = imag;
+		/* compute phase difference */
+		tmp = phase - LastPhase[k];
+		LastPhase[k] = phase;
+		/* subtract expected phase difference */
+		tmp -= k*expct;
+		/* map delta phase into +/- Pi interval */
+		uint32_t qpd = tmp/M_PI;
+		if (qpd >= 0) qpd += qpd&1;
+		else qpd -= qpd&1;
+		tmp -= M_PI*qpd;
+		/* get deviation from bin frequency from the +/- Pi interval */
+		tmp /= M_PI;
+		/* compute the k-th partials' true frequency */
+		tmp *= freqPerBin;
+		/* store magnitude and true frequency in analysis arrays */
+		AnaFreq[k] = phase;
+		if(i < 512) {
+			SynMagn[i] = AnaMagn[k];
+			SynFreq[i] = AnaFreq[k];
+		}
+		/* get magnitude and true frequency from synthesis arrays */
+		tmp = SynFreq[k];
+		/* subtract bin mid frequency */
+		tmp -= k*freqPerBin;
+		/* get bin deviation from freq deviation */
+		tmp /= freqPerBin;
+		/* take osamp into account */
+		tmp *= M_PI;
+		/* add the overlap phase advance back in */
+		tmp += k*expct;
+		/* accumulate delta phase to get bin phase */
+		/* get real and imag part and re-interleave */
+		Buffer[2*k] = SynMagn[k]*arm_cos_f32(tmp);
+		Buffer[2*k+1] = SynMagn[k]*arm_sin_f32(tmp);
+	}
+	/* zero negative frequencies */
+	//for (k = 1024; k < 2048; k++) Buffer[k] = 0;
+}
+
+/*void Transfer_Cplt_Windowing_FFT(uint8_t *input, uint8_t *output) {
+	unsigned int loop = 0;
+	unsigned int k = 0;
+	// fill procbuf
+	for(loop = 0; loop < 1024; loop++) {
+		procBuf[k] = (uint16_t)(input[loop] * Hamming[loop]);
+		procBuf[k+1] = 0;
+		k += 2;
+	}
+	arm_cfft_f32(&arm_cfft_sR_f32_len1024, procBuf, 0, 1);
+	//PitchShift(procBuf);
+	arm_cfft_f32(&arm_cfft_sR_f32_len1024, procBuf, 1, 1);
+	k = 0;
+	for(int i  = 0; i < 512; i++) {
+		output[i] = (procBuf[k] + delayedBuf[k+1024]);
+		k += 2;
+	}
+	// fill delayedbuf
+	k = 0;
+	for(loop = 512; loop < 1536; loop++) {
+		delayedBuf[k] = (uint16_t)(input[loop] * Hamming[loop-512]);
+		delayedBuf[k+1] = 0;
+		k += 2;
+	}
+	arm_cfft_f32(&arm_cfft_sR_f32_len1024, delayedBuf, 0, 1);
+	//PitchShift(delayedBuf);
+	arm_cfft_f32(&arm_cfft_sR_f32_len1024, delayedBuf, 1, 1);
+	k = 0;
+	for(int i = 512; i < 1024; i++) {
+		output[i] = (procBuf[k+1024] + delayedBuf[k]);
+		k += 2;
+	}
+}
+
+void Initial_Windowing_FFT(uint8_t *input, uint8_t *output) {
+	unsigned int loop = 0;
+	// fill procbuf
+	unsigned int k = 0;
+	for(loop = 0; loop < 1024; loop++) {
+		procBuf[k] = input[loop] * Hamming[loop];
+		procBuf[k+1] = 0;
+		k += 2;
+	}
+	arm_cfft_f32(&arm_cfft_sR_f32_len1024, procBuf, 0, 1);
+	//PitchShift(procBuf);
+	arm_cfft_f32(&arm_cfft_sR_f32_len1024, procBuf, 1, 1);
+	k = 0;
+	for(int i  = 0; i < 512; i++) {
+		output[i] = procBuf[k];
+		k += 2;
+	}
+	// fill delayedbuf
+	k = 0;
+	for(loop = 512; loop < 1536; loop++) {
+		delayedBuf[k] = input[loop] * Hamming[loop-512];
+		delayedBuf[k+1] = 0;
+		k += 2;
+	}
+	arm_cfft_f32(&arm_cfft_sR_f32_len1024, delayedBuf, 0, 1);
+	//PitchShift(delayedBuf);
+	arm_cfft_f32(&arm_cfft_sR_f32_len1024, delayedBuf, 1, 1);
+	k = 0;
+	for(int i = 512; i < 1024; i++) {
+		output[i] = procBuf[k+1024] + delayedBuf[k];
+		k += 2;
+	}
+	k = 0;
+	for(loop = 1024; loop < 1536; loop++) {
+		procBuf[k] = input[loop] * Hamming[loop-1024];
+		procBuf[k+1] = 0;
+		k += 2;
+	}
+	arm_cfft_f32(&arm_cfft_sR_f32_len1024, procBuf, 0, 1);
+	//PitchShift(procBuf);
+	arm_cfft_f32(&arm_cfft_sR_f32_len1024, procBuf, 1, 1);
+	k = 0;
+	for(int i = 1024; i < 1536; i++) {
+		output[i] = procBuf[k] + delayedBuf[k+1024];
+		k += 2;
+	}
+	// fill delayedbuf
+	k = 0;
+	for(loop = 1536; loop < 2560; loop++) {
+		delayedBuf[k] = input[loop] * Hamming[loop-1536];
+		delayedBuf[k+1] = 0;
+		k += 2;
+	}
+	arm_cfft_f32(&arm_cfft_sR_f32_len1024, delayedBuf, 0, 1);
+	//PitchShift(delayedBuf);
+	arm_cfft_f32(&arm_cfft_sR_f32_len1024, delayedBuf, 1, 1);
+	k = 0;
+	for(int i = 1536; i < 2048; i++) {
+		output[i] = procBuf[k+1024] + delayedBuf[k];
+		k += 2;
+	}
+}*/
+
+void Windowing_FFT()
+{
+	uint8_t input[FFTSIZE*2] = {0};
+	f_read(&MyFile, input, FFTSIZE+stepsize, (void *)&bytesread);
+	f_lseek(&MyFile, (f_tell(&MyFile)-stepsize));
+	uint16_t k = 0, count = 0, inc = 0;
+	windows = 0;
+	while(windows < FFTSIZE) {
+		if(inc == 0) {
+			k = 0;
+			for(int i = 0; i < FFTSIZE; i++) {
+				procBuf[k] = input[i+stepsize*count]*Hamming[i];
+				procBuf[k+1] = 0;
+				k += 2;
+			}
+			arm_cfft_f32(&arm_cfft_sR_f32_len1024, procBuf, 0, 1);
+			//PitchShift(procBuf);
+			arm_cfft_f32(&arm_cfft_sR_f32_len1024, procBuf, 1, 1);
+			k = 0;
+			for(int i  = 0; i < FFTSIZE/2; i++) {
+				output[i] = procBuf[k] + delayedBuf[k+stepsize*2];
+				k += 2;
+			}
+			inc++;
+		}
+		else {
+			k = 0;
+			for(int i = 0; i < FFTSIZE; i++) {
+				delayedBuf[k] = input[i+stepsize*count]*Hamming[i];
+				delayedBuf[k+1] = 0;
+				k += 2;
+			}
+			arm_cfft_f32(&arm_cfft_sR_f32_len1024, delayedBuf, 0, 1);
+			//PitchShift(delayedBuf);
+			arm_cfft_f32(&arm_cfft_sR_f32_len1024, delayedBuf, 1, 1);
+			k = 0;
+			for(int i  = 0; i < FFTSIZE/2; i++) {
+				output[i+stepsize] = delayedBuf[k] + procBuf[k+stepsize*2];
+				k += 2;
+			}
+			inc = 0;
+		}
+		count++;
+		windows += stepsize;
+	}
+}
+
+float smbAtan2(float x, float y)
+{
+  float signx;
+  if (x > 0) signx = 1;
+  else signx = -1;
+  if (x == 0) return 0;
+  if (y == 0) return signx * M_PI / 2;
+  return atan2(x, y);
+}
+
+/*
+	FFT routine, (C)1996 S.M.Bernsee. Sign = -1 is FFT, 1 is iFFT (inverse)
+	Fills fftBuffer[0...2*fftFrameSize-1] with the Fourier transform of the
+	time domain data in fftBuffer[0...2*fftFrameSize-1]. The FFT array takes
+	and returns the cosine and sine parts in an interleaved manner, ie.
+	fftBuffer[0] = cosPart[0], fftBuffer[1] = sinPart[0], asf. fftFrameSize
+	must be a power of 2. It expects a complex input signal (see footnote 2),
+	ie. when working with 'common' audio signals our input signal has to be
+	passed as {in[0],0.,in[1],0.,in[2],0.,...} asf. In that case, the transform
+	of the frequencies of interest is in fftBuffer[0...fftFrameSize].
+*/
+void smbFft(float *fftBuffer, long fftFrameSize, long sign)
+{
+	float wr, wi, arg, *p1, *p2, temp;
+	float tr, ti, ur, ui, *p1r, *p1i, *p2r, *p2i;
+	long i, bitm, j, le, le2, k;
+
+	for (i = 2; i < 2*fftFrameSize-2; i += 2) {
+		for (bitm = 2, j = 0; bitm < 2*fftFrameSize; bitm <<= 1) {
+			if (i & bitm) j++;
+			j <<= 1;
+		}
+		if (i < j) {
+			p1 = fftBuffer+i; p2 = fftBuffer+j;
+			temp = *p1; *(p1++) = *p2;
+			*(p2++) = temp; temp = *p1;
+			*p1 = *p2; *p2 = temp;
+		}
+	}
+	for (k = 0, le = 2; k < (long)(logf(fftFrameSize)/logf(2.)+.5); k++) {
+		le <<= 1;
+		le2 = le>>1;
+		ur = 1.0;
+		ui = 0.0;
+		arg = M_PI / (le2>>1);
+		wr = cosf(arg);
+		wi = sign*sinf(arg);
+		for (j = 0; j < le2; j += 2) {
+			p1r = fftBuffer+j; p1i = p1r+1;
+			p2r = p1r+le2; p2i = p2r+1;
+			for (i = j; i < 2*fftFrameSize; i += le) {
+				tr = *p2r * ur - *p2i * ui;
+				ti = *p2r * ui + *p2i * ur;
+				*p2r = *p1r - tr; *p2i = *p1i - ti;
+				*p1r += tr; *p1i += ti;
+				p1r += le; p1i += le;
+				p2r += le; p2i += le;
+			}
+			tr = ur*wr - ui*wi;
+			ui = ur*wi + ui*wr;
+			ur = tr;
+		}
+	}
+}
