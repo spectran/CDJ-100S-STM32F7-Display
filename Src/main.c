@@ -114,6 +114,7 @@ extern RekordboxTypeDef rekordbox;
 extern DisplayTypeDef display;
 uint16_t Total_tracks = 0;
 char TrackTable[100][255];
+char TrackPaths[100][255];
 int8_t halffr = 0;
 int16_t fr = 0;
 int8_t sec = 0;
@@ -367,6 +368,7 @@ FRESULT scan_files()
     UINT i = 0;
     UINT folders = 0;
     UINT subfolders = 0;
+    TCHAR relative_path[255] = {0};
     while(1) {
     	res = f_opendir(&folder, L"/PIONEER/USBANLZ");	/* Open the directory */
     	i = 0;
@@ -382,6 +384,8 @@ FRESULT scan_files()
     		folders++;
     		wcscpy(new_path, L"/PIONEER/USBANLZ/");
     		wcscat(new_path, fno.fname);
+    	  	for(i = 0; i < 255; i++) relative_path[i] = 0;
+    		wcscpy(relative_path, fno.fname);
     		wcscpy(old_path, new_path);
     		f_closedir(&folder);
     		subfolders = 0;
@@ -402,11 +406,14 @@ FRESULT scan_files()
     				subfolders++;
     				wcscat(new_path, L"/");
     				wcscat(new_path, fno.fname);
+    				wcscat(relative_path, L"/");
+    				wcscat(relative_path, fno.fname);
     				f_closedir(&folder);
     				res = f_opendir(&folder, new_path);
     				if(res == FR_OK) {
     					res = f_readdir(&folder, &fno);
     					if (!(fno.fattrib & AM_DIR)) {
+    						for(i=0; i<255; i++) TrackPaths[Total_tracks][i] = ff_convert(new_path[i], 0);
     						wcscat(new_path, L"/");
     						wcscat(new_path, fno.fname);
     						GetFileName(new_path);
@@ -425,59 +432,15 @@ FRESULT scan_files()
 FRESULT find_file(uint16_t track_number)
 {
     DIR folder;
-    UINT i = 0;
-    UINT folders = 0;
-    UINT subfolders = 0;
-    UINT track = 0;
-    while(1) {
-    	if(track > track_number) break;
-    	res = f_opendir(&folder, L"/PIONEER/USBANLZ");	/* Open the directory */
-    	i = 0;
-    	do {
-    		res = f_readdir(&folder, &fno);	/* Read a directory item */
-    	}
-    	while(i++ < folders);
-    	if (res != FR_OK || fno.fname[0] == 0) {
-    		f_closedir(&folder);
-    		break;	/* Break on error or end of dir */
-    	}
-    	if (fno.fattrib & AM_DIR) {	/* It is a directory */
-    		folders++;
-    		wcscpy(new_path, L"/PIONEER/USBANLZ/");
-    		wcscat(new_path, fno.fname);
-    		wcscpy(old_path, new_path);
-    		f_closedir(&folder);
-    		subfolders = 0;
-    		while(1) {
-    			res = f_opendir(&folder, old_path);
-    			for(i = 0; i < 255; i++) new_path[i] = 0;
-    			wcscpy(new_path, old_path);
-    			i = 0;
-    			do {
-    				res = f_readdir(&folder, &fno);	/* Read a directory item */
-    			}
-    			while(i++ < subfolders);
-    			if (res != FR_OK || fno.fname[0] == 0) {
-    				f_closedir(&folder);
-    				break;  /* Break on error or end of dir */
-    			}
-    			if (fno.fattrib & AM_DIR) {	/* It is a directory */
-    				subfolders++;
-    				wcscat(new_path, L"/");
-    				wcscat(new_path, fno.fname);
-    				f_closedir(&folder);
-    				res = f_opendir(&folder, new_path);
-    				if(res == FR_OK) {
-    					res = f_readdir(&folder, &fno);
-    					if (!(fno.fattrib & AM_DIR)) {
-    						track++;
-    						if(track > track_number) break;
-    					}
-    				}
-    			}
-    		}
-    	}
-    }
+    TCHAR path[255] = {0};
+    for(int i=0; i<255; i++) path[i] = ff_convert(TrackPaths[Track_number][i], 1);
+    wcscpy(new_path, path);
+	res = f_opendir(&folder, new_path);
+	if(res == FR_OK) {
+		res = f_readdir(&folder, &fno);
+		if (!(fno.fattrib & AM_DIR)) {
+		}
+	}
     return res;
 }
 
