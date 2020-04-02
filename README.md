@@ -4,7 +4,7 @@ Playback control is realized via touchscreen and via CDJ-100S keyboard, jog and 
 
 Brief instructions of how to upgrade your CDJ-100S player can be found in Instructions.pdf file.
 
-Ideas for program:
+The author would appreciate any improvements to this program. Here are some ideas:
 
 -fix bugs in Helix mp3 decoder implementation
 
