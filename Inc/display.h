@@ -22,6 +22,7 @@ typedef struct {
 	uint8_t state; // track state: playing, stopped, cue set...
 	uint16_t pitch; // pitch position in range 0...32768
 	float percent; // pitch changing in percent
+	uint16_t bitrate; // current file original bit rate
 }TrackTypeDef;
 
 typedef enum {

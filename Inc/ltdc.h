@@ -40,6 +40,9 @@ void MX_LTDC_Init(void);
 
 /* USER CODE BEGIN Prototypes */
 
+void BSP_LCD_DisplayOn(void);
+void BSP_LCD_DisplayOff(void);
+
 /* USER CODE END Prototypes */
 
 #ifdef __cplusplus
