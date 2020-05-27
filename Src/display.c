@@ -12,13 +12,11 @@
 #include "display.h"
 #include "string.h"
 #include "stm32746g_discovery_audio.h"
-#include "hamming.h"
 #include <stdio.h>
 
 extern uint8_t lowp_wavebuffer[400];
 extern uint32_t file_pos;
 extern uint32_t file_pos_wide;
-extern uint32_t file_pos_disp;
 extern RekordboxTypeDef rekordbox;
 extern uint8_t ActiveLayer;
 extern int Track_number;
@@ -36,7 +34,7 @@ extern int str_increment;
 extern uint16_t Total_tracks;
 
 float stretch = 1;
-uint8_t menu_mode = 0;
+int8_t menu_mode = 0;
 
 int beat = 0;
 uint32_t first_beat = 0;
@@ -183,6 +181,9 @@ void DrawMenu()
 		HLine(40, 139, 401, 0x00FFFFFF);
 		uint32_t acu_pos = (float)acue_sensitivity/250*400;
 		if(acu_pos != 0) Rectangle(40, 122, acu_pos, 17, 0x00FFFFFF);
+	}
+	else if(menu_mode == 3) {
+		DrawString("ERROR! INSERT SD CARD AND RESTART!", 0, 20, 0x00FFFFFF, 0x00FF0000);
 	}
 }
 
@@ -406,7 +407,14 @@ void DrawLowSpectrum()
 
 void SetBeatGrid()
 {
-	uint32_t position = file_pos_wide;
+	if(position != file_pos_wide) {
+		position = file_pos_wide;
+		if(stretch > 1) {
+			while((position % (int32_t)(stretch)) != (check % (int32_t)(stretch))) {
+				position++;
+			}
+		}
+	}
 	beat = 0;
 	first_beat = 0;
 	int32_t check = position + (-240)*stretch;
@@ -445,25 +453,65 @@ void DrawElement(uint16_t width, uint16_t height, uint16_t xpos, uint16_t ypos, 
 // draws high resolution spectrum on the selected ActiveLayer
 void DrawSpectrum()
 {
-	position = file_pos_wide;
-	int i;
+	uint8_t spectrum_frame[480] = {0};
+	uint32_t new_cues[rekordbox.cues];
+	int i, k;
+	// set new high resolution spectrum start position
+	if(position != file_pos_wide) {
+		position = file_pos_wide;
+		// synchronize old and new spectrum positions
+		if(stretch > 1) {
+			while((position % (int32_t)(stretch)) != (check % (int32_t)(stretch))) {
+				position++;
+			}
+		}
+	}
+	// fill new cue positions buffer
+	for(k = 0; k < rekordbox.cues; k++) {
+		new_cues[k] = 0;
+		i = 0;
+		check = position + (int32_t)((i-240)*stretch);
+		if(check < rekordbox.cue_start_position[k]) {
+			while(check < rekordbox.cue_start_position[k]) {
+				i++;
+				check = position + (int32_t)((i-240)*stretch);
+			}
+			if(new_cues[k] != check) new_cues[k] = check;
+		}
+	}
+	// fill the spectrum frame buffer
+	for(i = 0; i < 480; i++) {
+		check = position + (int32_t)((i-240)*stretch);
+		if(check > 0) {
+			spectrum_frame[i] = *(__IO uint8_t*)(WAVE_BUFFER+check);
+		}
+	}
+	// draw spectrum
 	for(i = 0; i < 480; i++)
 	{
-		check = position + (i-240)*stretch;
+		check = position + (int32_t)((i-240)*stretch);
 		if(check > 0) {
+			// draw loop above the high resolution spectrum
 			if(display.loop == 1) {
 				if((check >= display.loopstart) && (check <= display.loopend)) {
 					VLine(i, 75, 90, 0x008F8F8F);
 				}
 			}
-			uint8_t from_memory = *(__IO uint8_t*)(WAVE_BUFFER+check);
-			color = from_memory & 0xE0; // read color data - first 3 bits
+			color = spectrum_frame[i] & 0xE0; // read color data - first 3 bits
 			color <<= 8;
-			color = from_memory & 0xE0;
+			color = spectrum_frame[i] & 0xE0;
 			color <<= 8;
 			color |= 0x000000FF;
-			height = from_memory & 0x1F; //read height data - last 5 bits
+			height = spectrum_frame[i] & 0x1F; //read height data - last 5 bits
 			VLine(i, 120-height, height*2, color);
+		}
+	}
+	// draw beat grid and other signs
+	for(i = 0; i < 480; i++)
+	{
+		check = position + (int32_t)((i-240)*stretch);
+		if(check > 0) {
+			// draw beat ticks
 			if(first_beat <= rekordbox.timezones) {
 				if(check >= (int32_t)(rekordbox.timeindex[first_beat]*150/1000)) {
 					if(rekordbox.phase[first_beat] == 1) {
@@ -478,17 +526,23 @@ void DrawSpectrum()
 				}
 			}
 			if(rekordbox.state == 1) {
-				if(check == rekordbox.cue_start_position[0]) {
-					DrawElement(9, 5, i - 5, 72, 0x00FFFF00, hot_cue);
+				if(check == new_cues[0]) {
+					if((i > 10) && (i < 472))
+						DrawElement(15, 5, i - 11, 72, 0x00FFFF00, hot_cue_wide);
 				}
 			}
 			for(int k = 1; k < rekordbox.cues; k++) {
-				if(check == rekordbox.cue_start_position[k]) {
-					DrawElement(9, 5, i - 5, 72, 0x00FF0000, hot_cue);
+				if(check == new_cues[k]) {
+					if((i > 10) && (i < 472))
+						DrawElement(15, 5, i - 11, 72, 0x00FF0000, hot_cue_wide);
 				}
 			}
 		}
 	}
+	// draw central cursor
+	VLine(239, 75, 90, 0x00FFFFFF);
+	VLine(240, 75, 90, 0x00FFFFFF);
+	// draw bar display
 	bar = (beat + rekordbox.beat_grid_offset) / 4;
 	if(bar / 100 > 0) {
 		DrawDigit(bar / 100, 305, 51, 7, 0x000000FF);
@@ -499,9 +553,6 @@ void DrawSpectrum()
 	DrawElement(2, 2, 332, 63, 0x000000FF, small_point);
 	DrawDigit(rekordbox.phase[beat], 336, 51, 7, 0x000000FF);
 	DrawElement(19, 6, 348, 63, 0x000000FF, bars);
-	// draw central cursor
-	VLine(239, 75, 90, 0x00FFFFFF);
-	VLine(240, 75, 90, 0x00FFFFFF);
 	// draw beatframes
 	VLine(171, 54, 9, 0x000000FF);
 	HLine(172, 54, 28, 0x000000FF);

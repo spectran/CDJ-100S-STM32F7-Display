@@ -249,6 +249,29 @@ void HAL_LTDC_MspDeInit(LTDC_HandleTypeDef* ltdcHandle)
 } 
 
 /* USER CODE BEGIN 1 */
+/**
+  * @brief  Enables the display.
+  * @retval None
+  */
+void BSP_LCD_DisplayOn(void)
+{
+  /* Display On */
+  __HAL_LTDC_ENABLE(&hltdc);
+  HAL_GPIO_WritePin(LCD_DISP_GPIO_Port, LCD_DISP_Pin, GPIO_PIN_SET);        /* Assert LCD_DISP pin */
+  HAL_GPIO_WritePin(LCD_BL_CTRL_GPIO_Port, LCD_BL_CTRL_Pin, GPIO_PIN_SET);  /* Assert LCD_BL_CTRL pin */
+}
+
+/**
+  * @brief  Disables the display.
+  * @retval None
+  */
+void BSP_LCD_DisplayOff(void)
+{
+  /* Display Off */
+  __HAL_LTDC_DISABLE(&hltdc);
+  HAL_GPIO_WritePin(LCD_DISP_GPIO_Port, LCD_DISP_Pin, GPIO_PIN_RESET);      /* De-assert LCD_DISP pin */
+  HAL_GPIO_WritePin(LCD_BL_CTRL_GPIO_Port, LCD_BL_CTRL_Pin, GPIO_PIN_RESET);/* De-assert LCD_BL_CTRL pin */
+}
 
 /* USER CODE END 1 */
 

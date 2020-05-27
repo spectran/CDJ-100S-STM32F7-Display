@@ -108,7 +108,7 @@ TCHAR old_path[255] = {0};
 uint16_t bytesread = 0;
 uint32_t file_pos = 0;
 uint32_t file_pos_wide = 0;
-uint32_t file_pos_ms = 0;
+extern volatile int32_t position;
 uint8_t lowp_wavebuffer[400];
 extern RekordboxTypeDef rekordbox;
 extern DisplayTypeDef display;
@@ -123,7 +123,7 @@ int16_t rfr = 0;
 int8_t rsec = 0;
 int8_t rmin = 0;
 uint8_t tim7_flag = 0;
-extern uint8_t menu_mode;
+extern int8_t menu_mode;
 extern int beat;
 extern int bar;
 
@@ -138,8 +138,8 @@ TS_StateTypeDef ts_State;
 
 AUDIO_OUT_BufferTypeDef BufferCtl;
 
-UINT bOutOfData = 0;
-uint32_t unDmaBufMode = 0;
+volatile UINT bOutOfData = 0;
+volatile uint32_t unDmaBufMode = 0;
 uint8_t volume = 60;
 uint8_t acue_sensitivity = 30;
 /* USER CODE END PV */
@@ -164,7 +164,6 @@ FRESULT find_file(uint16_t track_number);
   * @retval int
   */
 int main(void)
-
 {
   /* USER CODE BEGIN 1 */
 
@@ -214,25 +213,31 @@ int main(void)
   MX_TIM9_Init();
   /* USER CODE BEGIN 2 */
   SDRAM_Init(); // MT48LC4M32B2B5-6A SDRAM initialization
+  BSP_LCD_DisplayOff();
   HAL_LTDC_SetAddress(&hltdc, LCD_FB_START_ADDRESS_0, 0); // set layer 0 framebuffer address
   HAL_LTDC_SetAddress(&hltdc, LCD_FB_START_ADDRESS_1, 1); // set layer 1 framebuffer address
-  res = f_mount(&SDFatFs, (TCHAR const*)SDPath, 0); // SD card disk mount
-  hMP3Decoder = MP3InitDecoder(); // mp3 decoder initialization
-  scan_files(); // get total track number
   ClearLayer(); // clear framebuffer 0
   HAL_LTDC_SetAlpha_NoReload(&hltdc, 0, ActiveLayer++);
   HAL_LTDC_SetAlpha_NoReload(&hltdc, 255, ActiveLayer--);
   ChangeLayers();
   ClearLayer(); // clear framebuffer 1
+  HAL_TIM_Base_Start_IT(&htim4); // start display refresh timer
+  if(BSP_SD_IsDetected() != SD_PRESENT) {
+	  menu_mode = 3;
+	  BSP_LCD_DisplayOn();
+	  while(1);
+  }
   BSP_TS_Init(480, 272); // touchscreen initialization
   BSP_TS_ITClear();
   BSP_TS_ITConfig();
-  HAL_TIM_Base_Start_IT(&htim4); // start display refresh timer
+  f_mount(&SDFatFs, (TCHAR const*)SDPath, 0); // SD card disk mount
+  hMP3Decoder = MP3InitDecoder(); // mp3 decoder initialization
+  scan_files(); // get total track number
   HAL_TIM_Base_Start_IT(&htim5); // start jog speed counting timer
   HAL_SPI_TransmitReceive_IT(&hspi2, spi_tx, spi_rx, 4);
-  BSP_AUDIO_OUT_Init(OUTPUT_DEVICE_HEADPHONE, volume, (uint32_t)(22050)*
-		  (1 + trak.percent));
-  BSP_AUDIO_OUT_SetMute(AUDIO_MUTE_ON);
+  BSP_AUDIO_OUT_Init(OUTPUT_DEVICE_HEADPHONE, volume, (uint32_t)(AUDIO_FREQUENCY_22K)*(1 + trak.percent));
+  BSP_AUDIO_OUT_SetVolume(0);
+  BSP_LCD_DisplayOn();
   /* USER CODE END 2 */
 
   /* Infinite loop */
@@ -247,10 +252,12 @@ int main(void)
 	  rsec = 0;
 	  rmin = 0;
 	  file_pos_wide = 0;
+	  position = 0;
 	  rekordbox.state = 0;
 	  display.loop = 0;
 	  if(display.cuemode == 1) rekordbox.autocue = 1;
 	  else rekordbox.autocue = 0;
+	  rekordbox.currentcue = 0;
 	  DecodeRekordboxFiles(new_path);
 	  menu_mode = 0;
 	  bar = 0;
@@ -277,7 +284,7 @@ int main(void)
 		  Track_number++;
 	  }
 	  file_pos_wide = 0;
-	  menu_mode = 3;
+	  menu_mode = 4;
 	  f_close(&MyFile);
 	  f_closedir(&dir);
 	  if(Track_number >= Total_tracks) Track_number = 0;

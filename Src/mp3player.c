@@ -15,12 +15,13 @@
 #include "waveplayer.h"
 #include "display.h"
 #include "tim.h"
+#include "main.h"
 
 extern FIL MyFile;
 extern AUDIO_OUT_BufferTypeDef BufferCtl;
 extern RekordboxTypeDef rekordbox;
 extern DisplayTypeDef display;
-extern UINT bOutOfData;
+extern volatile UINT bOutOfData;
 extern volatile uint32_t unDmaBufMode;
 extern HMP3Decoder hMP3Decoder;
 extern TrackTypeDef trak;
@@ -31,14 +32,17 @@ Mp3HeaderTypeDef mp3header;
 
 MP3FrameInfo mp3FrameInfo;
 
-uint16_t g_pMp3OutBuffer[MAX_NCHAN * MAX_NGRAN * MAX_NSAMP];
+uint16_t g_pMp3OutBuffer[MAX_NCHAN * MAX_NGRAN * MAX_NSAMP]; // output samples from decoder
 uint16_t* g_pMp3OutBufferPtr = NULL;
-uint16_t g_pMp3DmaBuffer[MP3_DMA_BUFFER_SIZE];
+uint16_t g_pMp3DmaBuffer[MP3_DMA_BUFFER_SIZE]; // samples to be send to audio codec
 uint16_t* g_pMp3DmaBufferPtr = NULL;
 int unInDataLeft = 0;
 uint32_t unDmaBufferSpace = 0;
 UINT unFramesDecoded = 0;
 int nDecodeRes = ERR_MP3_NONE;
+uint8_t *pInData = BufferCtl.buff;
+
+extern uint8_t volume;
 
 /*
  * Taken from
@@ -309,117 +313,249 @@ uint8_t ReadMp3Header(Mp3HeaderTypeDef *mp3format) {
 }
 
 void PlayMp3File() {
-	  BufferCtl.filetype = 1;
-	  char szArtist[120];
-	  char szTitle[120];
-	  id3tagsize = 0;
-	  BSP_AUDIO_OUT_ClockConfig(&hsai_BlockA2, (uint32_t)(AUDIO_FREQUENCY_22K)
-			  *(1 + trak.percent), NULL);
-	  Mp3ReadId3V2Tag(&MyFile, szArtist, sizeof(szArtist), szTitle, sizeof(szTitle));
-	  g_pMp3DmaBufferPtr = g_pMp3DmaBuffer;
-	  bOutOfData = 0;
-	  uint8_t *pInData = BufferCtl.buff;
-	  unInDataLeft = 0;
-	  unDmaBufferSpace = 0;
-	  unFramesDecoded = 0;
-	  nDecodeRes = ERR_MP3_NONE;
-	  unDmaBufMode = 0;
-	  do {
-		  if(unInDataLeft < (2 * MAINBUF_SIZE)) {
-			  UINT unRead = Mp3FillReadBuffer(pInData, unInDataLeft, &MyFile);
-			  unInDataLeft += unRead;
-			  pInData = BufferCtl.buff;
-		  }
-		  // find start of next MP3 frame - assume EOF if no sync found
-		  int nOffset = MP3FindSyncWord(pInData, unInDataLeft);
-		  if(nOffset < 0) {
-			  bOutOfData = 1;
-			  break;
-		  }
-		  pInData += nOffset;
-		  unInDataLeft -= nOffset;
-		  // decode one MP3 frame - if offset < 0 then bytesLeft was less than a full frame
-		  nDecodeRes = MP3Decode(hMP3Decoder, &pInData, (int*)&unInDataLeft, (short*)g_pMp3OutBuffer, 0);
-		  switch(nDecodeRes) {
-		  case ERR_MP3_NONE:
-		  {
-			  MP3GetLastFrameInfo(hMP3Decoder, &mp3FrameInfo);
-			  unFramesDecoded++;
-			  g_pMp3OutBufferPtr = g_pMp3OutBuffer;
-			  uint32_t unOutBufferAvail = mp3FrameInfo.outputSamps;
-			  while(unOutBufferAvail > 0) {
-				  // fill up the whole dma buffer
-				  uint32_t unDmaBufferSpace = 0;
-				  if(unDmaBufMode == 0) {
-					  // fill the whole buffer
-					  // dma buf ptr was reset to beginning of the buffer
-					  unDmaBufferSpace = g_pMp3DmaBuffer + MP3_DMA_BUFFER_SIZE - g_pMp3DmaBufferPtr;
-				  }
-				  else if(unDmaBufMode == 1) {
-					  // fill the first half of the buffer
-					  // dma buf ptr was reset to beginning of the buffer
-					  unDmaBufferSpace = g_pMp3DmaBuffer + (MP3_DMA_BUFFER_SIZE / 2) - g_pMp3DmaBufferPtr;
-				  }
-				  else {
-					  // fill the last half of the buffer
-					  // dma buf ptr was reset to middle of the buffer
-					  unDmaBufferSpace = g_pMp3DmaBuffer + MP3_DMA_BUFFER_SIZE - g_pMp3DmaBufferPtr;
-				  }
-				  uint32_t unCopy = unDmaBufferSpace > unOutBufferAvail ? unOutBufferAvail : unDmaBufferSpace;
-				  if(unCopy > 0) {
-					  memcpy(g_pMp3DmaBufferPtr, g_pMp3OutBufferPtr, unCopy * sizeof(uint16_t));
-					  unOutBufferAvail -= unCopy;
-					  g_pMp3OutBufferPtr += unCopy;
-					  unDmaBufferSpace -= unCopy;
-					  g_pMp3DmaBufferPtr += unCopy;
-				  }
-				  if(unDmaBufferSpace == 0) {
-					  // dma buffer full
-					  // see if this was the first run
-					  if(unDmaBufMode == 0) {
-						  // on the first buffer fill up,
-						  // start the dma transfer
-						  BSP_AUDIO_OUT_Play(g_pMp3DmaBuffer, MP3_DMA_BUFFER_SIZE * sizeof(uint16_t));
-						  BSP_AUDIO_OUT_SetMute(AUDIO_MUTE_OFF);
-						  if((rekordbox.autocue == 2) && (trak.state == PLAYING)) {
-							  BSP_AUDIO_OUT_Pause();
-							  trak.state = STOPPED;
-							  HAL_TIM_Base_Start_IT(&htim8);
-							  GoToPosition(rekordbox.cue_start_position[0]);
-							  TrackTime();
-						  }
-					  }
-					  // we must wait for the dma stream tx interrupt here
-					  while(unDmaBufMode == 0);
-				  }
-			  }
-			  break;
-		  }
-		  case ERR_MP3_MAINDATA_UNDERFLOW:
-		  {
-			  // do nothing - next call to decode will provide more mainData
-			  // just need another frame
-			  unInDataLeft += MP3_INBUF_SIZE;
-			  break;
-		  }
-		  case ERR_MP3_INDATA_UNDERFLOW:
-		  {
-			  if(nOffset == 0)
-				  // something's really wrong here, frame had to fit
-				  bOutOfData = 1;
-			  else {
-				  unInDataLeft += nOffset;
-			  }
-			  break;
-		  }
-		  default:
-		  {
-			  // just try to skip the offending frame...
-			  unInDataLeft += nOffset + 1;
-			  break;
-		  }
-		  }
-	  }
-	  while(!bOutOfData);
-	  while(unDmaBufMode < 3);
+	BufferCtl.filetype = 1;
+	char szArtist[120];
+	char szTitle[120];
+	id3tagsize = 0;
+	Mp3ReadId3V2Tag(&MyFile, szArtist, sizeof(szArtist), szTitle, sizeof(szTitle));
+	bOutOfData = 0;
+	memset(BufferCtl.buff, 0, AUDIO_OUT_BUFFER_SIZE);
+	//memset(g_pMp3DmaBuffer, 0, MP3_DMA_BUFFER_SIZE);
+	g_pMp3DmaBufferPtr = g_pMp3DmaBuffer;
+	unInDataLeft = 0;
+	unDmaBufferSpace = 0;
+	unFramesDecoded = 0;
+	nDecodeRes = ERR_MP3_INDATA_UNDERFLOW;
+	unDmaBufMode = 0;
+	do {
+		// fill the whole buffer for the first time
+		if(unInDataLeft < (2 * MAINBUF_SIZE)) {
+			UINT unRead = Mp3FillReadBuffer(pInData, unInDataLeft, &MyFile);
+			unInDataLeft += unRead;
+			pInData = BufferCtl.buff;
+		}
+		// find start of next MP3 frame - assume EOF if no sync found
+		int nOffset = MP3FindSyncWord(pInData, unInDataLeft);
+		if(nOffset < 0) {
+			unInDataLeft = 0;
+			//bOutOfData = 1;
+			//break;
+		}
+		else {
+			pInData += nOffset;
+			unInDataLeft -= nOffset;
+			// decode one MP3 frame - if offset < 0 then bytesLeft was less than a full frame
+			nDecodeRes = MP3Decode(hMP3Decoder, &pInData, (int*)&unInDataLeft, (short*)g_pMp3OutBuffer, 0);
+			switch(nDecodeRes) {
+			case ERR_MP3_NONE:
+			{
+				MP3GetLastFrameInfo(hMP3Decoder, &mp3FrameInfo);
+				unFramesDecoded++;
+				g_pMp3OutBufferPtr = g_pMp3OutBuffer;
+				uint32_t unOutBufferAvail = mp3FrameInfo.outputSamps;
+				while(unOutBufferAvail > 0) {
+					// fill up the whole dma buffer
+					uint32_t unDmaBufferSpace = 0;
+					if(unDmaBufMode == 0) {
+						// fill the whole buffer
+						// dma buf ptr was reset to beginning of the buffer
+						unDmaBufferSpace = g_pMp3DmaBuffer + MP3_DMA_BUFFER_SIZE - g_pMp3DmaBufferPtr;
+					}
+					else if(unDmaBufMode == 1) {
+						// fill the first half of the buffer
+						// dma buf ptr was reset to beginning of the buffer
+						unDmaBufferSpace = g_pMp3DmaBuffer + (MP3_DMA_BUFFER_SIZE / 2) - g_pMp3DmaBufferPtr;
+					}
+					else {
+						// fill the last half of the buffer
+						// dma buf ptr was reset to middle of the buffer
+						unDmaBufferSpace = g_pMp3DmaBuffer + MP3_DMA_BUFFER_SIZE - g_pMp3DmaBufferPtr;
+					}
+					uint32_t unCopy = unDmaBufferSpace > unOutBufferAvail ? unOutBufferAvail : unDmaBufferSpace;
+					if(unCopy > 0) {
+						memcpy(g_pMp3DmaBufferPtr, g_pMp3OutBufferPtr, unCopy * sizeof(uint16_t));
+						unOutBufferAvail -= unCopy;
+						g_pMp3OutBufferPtr += unCopy;
+						unDmaBufferSpace -= unCopy;
+						g_pMp3DmaBufferPtr += unCopy;
+					}
+					if(unDmaBufferSpace == 0) {
+						// dma buffer full
+						// see if this was the first run
+						if(unDmaBufMode == 0) {
+							// on the first buffer fill up,
+							// start the dma transfer
+							if(mp3FrameInfo.samprate > 0) trak.bitrate = mp3FrameInfo.samprate;
+							else trak.bitrate = AUDIO_FREQUENCY_44K;
+							BSP_AUDIO_OUT_ClockConfig(&hsai_BlockA2, (uint32_t)(trak.bitrate / 2)
+									*(1 + trak.percent), NULL);
+							BSP_AUDIO_OUT_Play(g_pMp3DmaBuffer, MP3_DMA_BUFFER_SIZE * sizeof(uint16_t));
+							BSP_AUDIO_OUT_SetVolume(volume);
+							if((rekordbox.autocue == 2) && (trak.state == PLAYING)) {
+								BSP_AUDIO_OUT_Pause();
+								trak.state = STOPPED;
+								HAL_TIM_Base_Start_IT(&htim8);
+								GoToPosition(rekordbox.cue_start_position[0]);
+								TrackTime();
+							}
+						}
+						// we must wait for the dma stream tx interrupt here
+						while(unDmaBufMode == 0);
+					}
+				}
+				break;
+			}
+			case ERR_MP3_MAINDATA_UNDERFLOW:
+			{
+				// do nothing - next call to decode will provide more mainData
+				break;
+			}
+			case ERR_MP3_INDATA_UNDERFLOW:
+			{
+				if(nOffset == 0)
+				// something's really wrong here, frame had to fit
+					bOutOfData = 1;
+				else {
+					unInDataLeft = 0;
+				}
+				break;
+			}
+			default:
+			{
+				// just try to skip the offending frame...
+				if(unInDataLeft > 0) {
+					unInDataLeft-=MP3_BYTES_SKIP;
+					pInData+=MP3_BYTES_SKIP;
+				}
+				break;
+			}
+			}
+		}
+	}
+	while(!bOutOfData);
+	BSP_AUDIO_OUT_SetVolume(0);
+	while(unDmaBufMode < 3);
+}
+
+// after an error, try to restart MP3 decoding
+void RereadMp3File()
+{
+	bOutOfData = 0;
+	memset(BufferCtl.buff, 0, AUDIO_OUT_BUFFER_SIZE);
+	g_pMp3DmaBufferPtr = g_pMp3DmaBuffer;
+	unInDataLeft = 0;
+	unDmaBufferSpace = 0;
+	unFramesDecoded = 0;
+	nDecodeRes = ERR_MP3_INDATA_UNDERFLOW;
+	unDmaBufMode = 0;
+	do {
+		// fill the whole buffer for the first time
+		if(unInDataLeft < (2 * MAINBUF_SIZE)) {
+			UINT unRead = Mp3FillReadBuffer(pInData, unInDataLeft, &MyFile);
+			unInDataLeft += unRead;
+			pInData = BufferCtl.buff;
+		}
+		// find start of next MP3 frame - assume EOF if no sync found
+		int nOffset = MP3FindSyncWord(pInData, unInDataLeft);
+		if(nOffset < 0) {
+			unInDataLeft = 0;
+			//bOutOfData = 1;
+			//break;
+		}
+		else {
+			pInData += nOffset;
+			unInDataLeft -= nOffset;
+			// decode one MP3 frame - if offset < 0 then bytesLeft was less than a full frame
+			nDecodeRes = MP3Decode(hMP3Decoder, &pInData, (int*)&unInDataLeft, (short*)g_pMp3OutBuffer, 0);
+			switch(nDecodeRes) {
+			case ERR_MP3_NONE:
+			{
+				MP3GetLastFrameInfo(hMP3Decoder, &mp3FrameInfo);
+				unFramesDecoded++;
+				g_pMp3OutBufferPtr = g_pMp3OutBuffer;
+				uint32_t unOutBufferAvail = mp3FrameInfo.outputSamps;
+				while(unOutBufferAvail > 0) {
+					// fill up the whole dma buffer
+					uint32_t unDmaBufferSpace = 0;
+					if(unDmaBufMode == 0) {
+						// fill the whole buffer
+						// dma buf ptr was reset to beginning of the buffer
+						unDmaBufferSpace = g_pMp3DmaBuffer + MP3_DMA_BUFFER_SIZE - g_pMp3DmaBufferPtr;
+					}
+					else if(unDmaBufMode == 1) {
+						// fill the first half of the buffer
+						// dma buf ptr was reset to beginning of the buffer
+						unDmaBufferSpace = g_pMp3DmaBuffer + (MP3_DMA_BUFFER_SIZE / 2) - g_pMp3DmaBufferPtr;
+					}
+					else {
+						// fill the last half of the buffer
+						// dma buf ptr was reset to middle of the buffer
+						unDmaBufferSpace = g_pMp3DmaBuffer + MP3_DMA_BUFFER_SIZE - g_pMp3DmaBufferPtr;
+					}
+					uint32_t unCopy = unDmaBufferSpace > unOutBufferAvail ? unOutBufferAvail : unDmaBufferSpace;
+					if(unCopy > 0) {
+						memcpy(g_pMp3DmaBufferPtr, g_pMp3OutBufferPtr, unCopy * sizeof(uint16_t));
+						unOutBufferAvail -= unCopy;
+						g_pMp3OutBufferPtr += unCopy;
+						unDmaBufferSpace -= unCopy;
+						g_pMp3DmaBufferPtr += unCopy;
+					}
+					if(unDmaBufferSpace == 0) {
+						// dma buffer full
+						// see if this was the first run
+						if(unDmaBufMode == 0) {
+							// on the first buffer fill up,
+							// start the dma transfer
+							if(mp3FrameInfo.samprate > 0) trak.bitrate = mp3FrameInfo.samprate;
+							else trak.bitrate = AUDIO_FREQUENCY_44K;
+							BSP_AUDIO_OUT_ClockConfig(&hsai_BlockA2, (uint32_t)(trak.bitrate / 2)
+									*(1 + trak.percent), NULL);
+							BSP_AUDIO_OUT_Play(g_pMp3DmaBuffer, MP3_DMA_BUFFER_SIZE * sizeof(uint16_t));
+							BSP_AUDIO_OUT_SetVolume(volume);
+							if((rekordbox.autocue == 2) && (trak.state == PLAYING)) {
+								BSP_AUDIO_OUT_Pause();
+								trak.state = STOPPED;
+								HAL_TIM_Base_Start_IT(&htim8);
+								GoToPosition(rekordbox.cue_start_position[0]);
+								TrackTime();
+							}
+						}
+						// we must wait for the dma stream tx interrupt here
+						while(unDmaBufMode == 0);
+					}
+				}
+				break;
+			}
+			case ERR_MP3_MAINDATA_UNDERFLOW:
+			{
+				// do nothing - next call to decode will provide more mainData
+				// just need another frame
+				unInDataLeft += MP3_BYTES_SKIP;
+				break;
+			}
+			case ERR_MP3_INDATA_UNDERFLOW:
+			{
+				//if(nOffset == 0)
+				// something's really wrong here, frame had to fit
+				//bOutOfData = 1;
+				//else {
+				unInDataLeft = 0;
+				//}
+				break;
+			}
+			default:
+			{
+				// just try to skip the offending frame...
+				if(unInDataLeft > 0) {
+					unInDataLeft--;
+					pInData++;
+				}
+				break;
+			}
+			}
+		}
+	}
+	while(!bOutOfData);
+	BSP_AUDIO_OUT_SetVolume(0);
+	while(unDmaBufMode < 3);
 }

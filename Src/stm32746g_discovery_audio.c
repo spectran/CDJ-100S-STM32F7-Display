@@ -103,6 +103,7 @@
 #include "display.h"
 #include "main.h"
 #include "waveplayer.h"
+#include "mp3player.h"
 #include "tim.h"
 /** @addtogroup BSP
   * @{
@@ -148,14 +149,16 @@ SAI_HandleTypeDef         haudio_in_sai={0};
 extern I2C_HandleTypeDef hi2c3;
 extern SAI_HandleTypeDef hsai_BlockA2;
 extern FIL MyFile;     /* File object */
-uint16_t g_pMp3OutBuffer[MAX_NCHAN * MAX_NGRAN * MAX_NSAMP];
+extern uint16_t g_pMp3OutBuffer[MAX_NCHAN * MAX_NGRAN * MAX_NSAMP];
 uint16_t* g_pMp3OutBufferPtr;
 extern uint16_t bytesread;
+
+uint8_t stopflag = 0;
 
 extern uint16_t g_pMp3DmaBuffer[MP3_DMA_BUFFER_SIZE];
 extern uint16_t* g_pMp3DmaBufferPtr;
 extern UINT bOutOfData;
-extern uint32_t unDmaBufMode;
+extern volatile uint32_t unDmaBufMode;
 
 extern AUDIO_OUT_BufferTypeDef BufferCtl;
 
@@ -281,7 +284,6 @@ uint8_t BSP_AUDIO_OUT_Pause(void)
   //{
     /* Call the Media layer pause function */
     HAL_SAI_DMAPause(&hsai_BlockA2);
-    
     /* Return AUDIO_OK when all operations are correctly done */
     return AUDIO_OK;
   //}
@@ -305,7 +307,6 @@ uint8_t BSP_AUDIO_OUT_Resume(void)
   //{
     /* Call the Media layer pause/resume function */
     HAL_SAI_DMAResume(&hsai_BlockA2);
-    
     /* Return AUDIO_OK when all operations are correctly done */
     return AUDIO_OK;
   //}
@@ -474,10 +475,9 @@ void HAL_SAI_TxCpltCallback(SAI_HandleTypeDef *hsai)
 		BufferCtl.fptr += AUDIO_OUT_BUFFER_SIZE / 2;
 	}
 	if(BufferCtl.filetype == 1) {
-		unDmaBufMode = 2;
-		// fill the last half of the buffer
-		// dma buf ptr was reset to middle of the buffer
-		g_pMp3DmaBufferPtr = g_pMp3DmaBuffer + (MP3_DMA_BUFFER_SIZE / 2);
+		// set up last half mode
+        unDmaBufMode = 2;
+        g_pMp3DmaBufferPtr = g_pMp3DmaBuffer + (MP3_DMA_BUFFER_SIZE / 2);
 	}
 	GetTrackTime();
 	if(f_eof(&MyFile) == 1) {
@@ -500,8 +500,8 @@ void HAL_SAI_TxHalfCpltCallback(SAI_HandleTypeDef *hsai)
 	}
 	if(BufferCtl.filetype == 1) {
 		// set up first half mode
-		unDmaBufMode = 1;
-		g_pMp3DmaBufferPtr = g_pMp3DmaBuffer;
+        unDmaBufMode = 1;
+        g_pMp3DmaBufferPtr = g_pMp3DmaBuffer;
 	}
 	GetTrackTime();
 	if(f_eof(&MyFile) == 1) {
@@ -1451,22 +1451,22 @@ void AUDIO_IO_Delay(uint32_t Delay)
 
 UINT Mp3FillReadBuffer(BYTE* pInData, UINT unInDataLeft, FIL* pInFile)
 {
-  // move last, small chunk from end of buffer to start, then fill with new data
-  memmove(BufferCtl.buff, pInData, unInDataLeft);
+	// move last, small chunk from end of buffer to start, then fill with new data
+	memmove(BufferCtl.buff, pInData, unInDataLeft);
 
-  UINT unSpaceLeft = MP3_INBUF_SIZE - unInDataLeft;
-  UINT unRead = 0;
-  FRESULT fr = f_read(pInFile, BufferCtl.buff + unInDataLeft, unSpaceLeft, &unRead);
-  if(fr != FR_OK)
-  {
-    unRead = 0;
-  }
-  if(unRead < unSpaceLeft)
-  {
-    // zero-pad to avoid finding false sync word after last frame (from old data in readBuf)
-    memset(BufferCtl.buff + unInDataLeft + unRead, unSpaceLeft - unRead, 0);
-  }
-  return unRead;
+	UINT unSpaceLeft = MP3_INBUF_SIZE - unInDataLeft;
+	UINT unRead = 0;
+	FRESULT fr = f_read(pInFile, BufferCtl.buff + unInDataLeft, unSpaceLeft, &unRead);
+	if(fr != FR_OK)
+	{
+		unRead = 0;
+	}
+	if(unRead < unSpaceLeft)
+	{
+	    // zero-pad to avoid finding false sync word after last frame (from old data in readBuf)
+	    memset(BufferCtl.buff + unInDataLeft + unRead, unSpaceLeft - unRead, 0);
+	}
+	return unRead;
 }
 
 /**

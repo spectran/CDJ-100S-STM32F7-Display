@@ -18,9 +18,9 @@
 
 extern FIL MyFile;
 extern AUDIO_OUT_BufferTypeDef BufferCtl;
-extern RekordboxTypeDef rekordbox;
+extern volatile RekordboxTypeDef rekordbox;
 extern DisplayTypeDef display;
-extern UINT bOutOfData;
+extern volatile UINT bOutOfData;
 extern TrackTypeDef trak;
 
 extern int16_t rfr;
@@ -37,7 +37,6 @@ extern uint8_t tim7_flag;
 extern uint8_t spi_rx[4];
 extern uint8_t spi_tx[4];
 
-extern UINT bOutOfData;
 extern int unInDataLeft;
 extern uint32_t unDmaBufferSpace;
 extern UINT unFramesDecoded;
@@ -46,9 +45,8 @@ extern uint16_t* g_pMp3DmaBufferPtr;
 extern uint16_t g_pMp3DmaBuffer[MP3_DMA_BUFFER_SIZE];
 extern int Track_number;
 
+extern uint8_t volume;
 uint32_t wavtagsize = 0;
-uint32_t spectrum_speed = 0;
-
 WavHeaderTypeDef wavfile;
 
 uint8_t ReadWavHeader(WavHeaderTypeDef *waveformat) {
@@ -89,19 +87,20 @@ void TrackTime() {
 void PlayWavFile() {
 	wavtagsize = 0;
 	BufferCtl.filetype = 0;
+	memset(BufferCtl.buff, 0, AUDIO_OUT_BUFFER_SIZE);
 	bOutOfData = 0;
 	uint16_t bytesread = 0;
 	ReadWavHeader(&wavfile);
 	wavtagsize = wavfile.FileSize - wavfile.SubChunk2Size;
-	BSP_AUDIO_OUT_ClockConfig(&hsai_BlockA2, (uint32_t)(wavfile.SampleRate
-			/ 2)*(1 + trak.percent), NULL);
+	if(wavfile.SampleRate > 0) trak.bitrate = wavfile.SampleRate;
+	else trak.bitrate = AUDIO_FREQUENCY_44K;
+	BSP_AUDIO_OUT_ClockConfig(&hsai_BlockA2, (uint32_t)(trak.bitrate / 2)*(1 + trak.percent), NULL);
 	/* Fill whole buffer at first time */
 	while(f_read(&MyFile, &BufferCtl.buff[0], 2048, (void *)&bytesread) != FR_OK);
 	if(bytesread != 0) {
 		BSP_AUDIO_OUT_Play((uint16_t*)&BufferCtl.buff[0], AUDIO_OUT_BUFFER_SIZE);
 		BufferCtl.fptr = bytesread;
-		BSP_AUDIO_OUT_Resume();
-		BSP_AUDIO_OUT_SetMute(AUDIO_MUTE_OFF);
+		BSP_AUDIO_OUT_SetVolume(volume);
 	}
 	if((rekordbox.autocue == 2) && (trak.state == PLAYING)) {
 		BSP_AUDIO_OUT_Pause();
@@ -111,7 +110,7 @@ void PlayWavFile() {
 		TrackTime();
 	}
 	while((!bOutOfData) && (file_pos_wide < rekordbox.spectrum_size)) {
-		if(file_pos_wide > 0) {
+		if(file_pos_wide >= 0) {
 			if((rmin == 0) && (rsec < 30) && (rsec > 10)) {
 				if(tim7_flag == 0) {
 					__HAL_TIM_SET_AUTORELOAD(&htim7, 4999);
@@ -158,7 +157,7 @@ void PlayWavFile() {
 			}
 		}
 	}
-	BSP_AUDIO_OUT_SetMute(AUDIO_MUTE_ON);
+	BSP_AUDIO_OUT_SetVolume(0);
 	wavtagsize = 0;
 	HAL_TIM_Base_Stop_IT(&htim7);
 	__HAL_TIM_CLEAR_IT(&htim7, TIM_IT_UPDATE);
@@ -173,13 +172,19 @@ void GoToPosition(uint32_t position) {
 	file_pos_wide = position;
 	file_pos = (float)position / (float)rekordbox.spectrum_size *
 			rekordbox.lowp_spectrum_size;
-	uint16_t i = 0;
-	do {
-		f_lseek(&MyFile, (position*(float)(f_size(&MyFile)-id3tagsize-wavtagsize)
+	if(BufferCtl.filetype == 0)	{
+		uint16_t i = 0;
+		do {
+			f_lseek(&MyFile, (position*(float)(f_size(&MyFile)-id3tagsize-wavtagsize)
 				/rekordbox.spectrum_size + i));
-		i++;
+			i++;
+		}
+		while(((UINT)BufferCtl.buff & 1) != (f_tell(&MyFile) & 1));
 	}
-	while(((UINT)BufferCtl.buff & 1) != (f_tell(&MyFile) & 1));
+	else {
+		f_lseek(&MyFile, (position*(float)(f_size(&MyFile)-id3tagsize-wavtagsize)
+						/rekordbox.spectrum_size));
+	}
 	if(BufferCtl.filetype == 1) {
 		unInDataLeft = 0;
 		unDmaBufferSpace = 0;
