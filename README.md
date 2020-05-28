@@ -11,3 +11,11 @@ The author would appreciate any improvements to this program. Here are some idea
 -make master tempo and sound effects (this may require additional digital signal processor, I'm afraid)
 
 -add some new display modes
+
+Updates 28.05.2020:
+
+- changed high resolution waveform display process. Now there are 9 scale modes of waveform display. Touch the right side of waveform to expand, touch the left side to compress it, touch the center cursor to return default scale.
+
+- changed hot cues behaviour. Now SCAN+WAH buttons are used to switch between the cue points. The switch now doesn't change the playback state (playing/stopped).
+
+- fixed some minor bugs.
