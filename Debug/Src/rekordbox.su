@@ -1,0 +1,4 @@
+rekordbox.c:53:16:GetLongNumber	8	static
+rekordbox.c:39:16:FindToken	8	static
+rekordbox.c:79:9:DecodeRekordboxFiles	1312	static
+rekordbox.c:373:9:GetFileName	280	static

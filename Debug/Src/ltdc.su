@@ -1,0 +1,5 @@
+ltdc.c:30:6:MX_LTDC_Init	112	static
+ltdc.c:96:6:HAL_LTDC_MspInit	72	static
+ltdc.c:190:6:HAL_LTDC_MspDeInit	8	static
+ltdc.c:256:6:BSP_LCD_DisplayOn	8	static
+ltdc.c:268:6:BSP_LCD_DisplayOff	8	static

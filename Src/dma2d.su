@@ -1,3 +1,0 @@
-dma2d.c:30:6:MX_DMA2D_Init	8	static
-dma2d.c:44:6:HAL_DMA2D_MspInit	8	static
-dma2d.c:61:6:HAL_DMA2D_MspDeInit	0	static

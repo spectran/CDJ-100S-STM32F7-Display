@@ -1,0 +1,6 @@
+bitstream.c:60:6:xmp3fixpt_SetBitstreamPointer	0	static
+bitstream.c:129:14:xmp3fixpt_GetBits	16	static
+bitstream.c:165:5:xmp3fixpt_CalcBitsUsed	0	static
+bitstream.c:188:5:xmp3fixpt_CheckPadBit	0	static
+bitstream.c:218:5:xmp3fixpt_UnpackFrameHeader	16	static
+bitstream.c:299:5:xmp3fixpt_UnpackSideInfo	48	static

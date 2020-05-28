@@ -1,0 +1,3 @@
+scalfact.c:81:13:UnpackSFMPEG1	32	static
+scalfact.c:208:13:UnpackSFMPEG2	64	static
+scalfact.c:355:5:xmp3fixpt_UnpackScaleFactors	72	static

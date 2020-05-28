@@ -1,0 +1,7 @@
+imdct.c:72:13:AntiAlias	20	static,ignoring_inline_asm
+imdct.c:132:13:WinPrevious	28	static,ignoring_inline_asm
+imdct.c:185:12:FreqInvertRescale	16	static,ignoring_inline_asm
+imdct.c:536:12:IMDCT12x3	200	static,ignoring_inline_asm
+imdct.c:368:12:IMDCT36	224	static,ignoring_inline_asm
+imdct.c:618:12:HybridTransform	128	static,ignoring_inline_asm
+imdct.c:717:5:xmp3fixpt_IMDCT	88	static

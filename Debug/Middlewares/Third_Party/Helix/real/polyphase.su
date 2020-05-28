@@ -1,0 +1,2 @@
+polyphase.c:112:6:xmp3fixpt_PolyphaseMono	80	static
+polyphase.c:225:6:xmp3fixpt_PolyphaseStereo	120	static

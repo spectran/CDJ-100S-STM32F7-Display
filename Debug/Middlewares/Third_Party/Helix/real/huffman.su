@@ -1,0 +1,3 @@
+huffman.c:82:12:DecodeHuffmanPairs	56	static
+huffman.c:285:12:DecodeHuffmanQuads	48	static
+huffman.c:377:5:xmp3fixpt_DecodeHuffman	80	static

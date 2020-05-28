@@ -1,0 +1,3 @@
+stproc.c:64:6:xmp3fixpt_MidSideProc	20	static,ignoring_inline_asm
+stproc.c:106:6:xmp3fixpt_IntensityProcMPEG1	88	static,ignoring_inline_asm
+stproc.c:212:6:xmp3fixpt_IntensityProcMPEG2	152	static,ignoring_inline_asm

@@ -1,0 +1,6 @@
+diskio.c:76:9:disk_status	8	static
+diskio.c:91:9:disk_initialize	8	static
+diskio.c:113:9:disk_read	16	static
+diskio.c:135:9:disk_write	16	static
+diskio.c:157:9:disk_ioctl	8	static
+diskio.c:175:14:get_fattime	0	static

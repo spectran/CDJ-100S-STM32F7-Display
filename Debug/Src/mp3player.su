@@ -1,0 +1,5 @@
+mp3player.c:51:10:Mp3ReadId3V2Text	32	static
+mp3player.c:112:10:Mp3ReadId3V2Tag	80	static
+mp3player.c:220:9:ReadMp3Header	24	static
+mp3player.c:315:6:PlayMp3File	280	static
+mp3player.c:441:6:RereadMp3File	40	static

@@ -1,0 +1,17 @@
+stm32f7xx_hal_flash_ex.c:713:17:FLASH_OB_GetWRP	0	static
+stm32f7xx_hal_flash_ex.c:785:17:FLASH_OB_GetUser	0	static
+stm32f7xx_hal_flash_ex.c:967:16:FLASH_OB_GetRDP	0	static
+stm32f7xx_hal_flash_ex.c:995:17:FLASH_OB_GetBOR	0	static
+stm32f7xx_hal_flash_ex.c:1018:17:FLASH_OB_GetBootAddress	0	static
+stm32f7xx_hal_flash_ex.c:641:13:FLASH_MassErase	8	static,ignoring_inline_asm
+stm32f7xx_hal_flash_ex.c:903:26:FLASH_OB_BOR_LevelConfig	8	static
+stm32f7xx_hal_flash_ex.c:808:26:FLASH_OB_EnableWRP	8	static
+stm32f7xx_hal_flash_ex.c:844:26:FLASH_OB_DisableWRP	8	static
+stm32f7xx_hal_flash_ex.c:875:26:FLASH_OB_RDP_LevelConfig	8	static
+stm32f7xx_hal_flash_ex.c:747:26:FLASH_OB_UserConfig	32	static
+stm32f7xx_hal_flash_ex.c:934:26:FLASH_OB_BootAddressConfig	16	static
+stm32f7xx_hal_flash_ex.c:287:19:HAL_FLASHEx_OBProgram	16	static
+stm32f7xx_hal_flash_ex.c:386:6:HAL_FLASHEx_OBGetConfig	8	static
+stm32f7xx_hal_flash_ex.c:672:6:FLASH_Erase_Sector	16	static,ignoring_inline_asm
+stm32f7xx_hal_flash_ex.c:158:19:HAL_FLASHEx_Erase	24	static
+stm32f7xx_hal_flash_ex.c:231:19:HAL_FLASHEx_Erase_IT	8	static
